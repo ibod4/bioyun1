@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biyo-Tahmin: Kartları Eşleştir!</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to right, #4CAF50, #8BC34A); /* Yeşil tonları */
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(4, 100px); /* 4 sütun */
+            grid-template-rows: repeat(3, 100px); /* 3 satır */
+            gap: 15px;
+            perspective: 1000px; /* 3D dönüşüm için */
+        }
+
+        .card {
+            width: 100px;
+            height: 100px;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.6s ease-in-out;
+            cursor: pointer;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .card.flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden; /* Arka yüz görünmez */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            border-radius: 8px;
+            text-align: center;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+
+        .card-front {
+            background-color: #A5D6A7; /* Açık yeşil */
+            color: #2E7D32; /* Koyu yeşil yazı */
+            transform: rotateY(180deg); /* Önyüz başlangıçta kapalı */
+        }
+
+        .card-back {
+            background-color: #66BB6A; /* Daha koyu yeşil */
+            color: #fff;
+            font-size: 24px;
+            transform: rotateY(0deg); /* Arka yüz başlangıçta açık */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .card-back::before {
+            content: '❓'; /* Soru işareti simgesi */
+            font-size: 40px;
+            margin-bottom: 5px;
+        }
+
+        .card.matched .card-front, .card.matched .card-back {
+            opacity: 0.5; /* Eşleşen kartları soluklaştır */
+            pointer-events: none; /* Tıklanamaz hale getir */
+        }
+
+        .status-board {
+            background-color: rgba(0,0,0,0.3);
+            padding: 15px 25px;
+            border-radius: 10px;
+            margin-top: 30px;
+            font-size: 18px;
+            display: flex;
+            gap: 30px;
+        }
+
+        .button {
+            background-color: #FFC107; /* Sarı */
+            color: #333;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        .button:hover {
+            background-color: #FFD54F;
+        }
+        .message {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 20px;
+            text-align: center;
+            color: #FFEB3B; /* Parlak sarı */
+        }
+    </style>
+</head>
+<body>
+    <h1>Biyo-Tahmin: Kartları Eşleştir!</h1>
+    <div class="game-board" id="gameBoard">
+        </div>
+    <div class="status-board">
+        <div>Eşleşenler: <span id="matchesFound">0</span></div>
+        <div>Denemeler: <span id="attempts">0</span></div>
+    </div>
+    <button class="button" id="resetButton">Oyunu Yeniden Başlat</button>
+    <div class="message" id="gameMessage"></div>
+
+    <script>
+        const cardsData = [
+            { id: 'hucre', text: 'Hücre (Canlılık Birimi)' },
+            { id: 'hucre', text: 'Bütün Canlılar Hücrelerden Oluşur' },
+            { id: 'beslenme', text: 'Fotosentez Yapma' },
+            { id: 'beslenme', text: 'Dışarıdan Besin Alma' },
+            { id: 'solunum', text: 'ATP Enerjisi Üretme' },
+            { id: 'solunum', text: 'Oksijenli Solunum' },
+            { id: 'bosaltim', text: 'Metabolik Atıkları Atma' },
+            { id: 'bosaltim', text: 'Terleme ile Atık Uzaklaştırma' },
+            { id: 'ureme', text: 'Neslin Devamını Sağlama' },
+            { id: 'ureme', text: 'Eşeysiz Üreme (Bölünme)' },
+            { id: 'metabolizma', text: 'Yapım ve Yıkım Reaksiyonları' },
+            { id: 'metabolizma', text: 'Enzimatik Faaliyetler' }
+        ];
+
+        const gameBoard = document.getElementById('gameBoard');
+        const matchesFoundSpan = document.getElementById('matchesFound');
+        const attemptsSpan = document.getElementById('attempts');
+        const resetButton = document.getElementById('resetButton');
+        const gameMessage = document.getElementById('gameMessage');
+
+        let flippedCards = []; // Açılan kartları tutar
+        let matchedPairs = 0;
+        let attempts = 0;
+        let lockBoard = false; // İki kart açıkken yeni kart açmayı engeller
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function createCard(cardData) {
+            const cardElement = document.createElement('div');
+            cardElement.classList.add('card');
+            cardElement.dataset.id = cardData.id;
+
+            const cardFront = document.createElement('div');
+            cardFront.classList.add('card-face', 'card-front');
+            cardFront.textContent = cardData.text;
+
+            const cardBack = document.createElement('div');
+            cardBack.classList.add('card-face', 'card-back');
+
+            cardElement.appendChild(cardFront);
+            cardElement.appendChild(cardBack);
+
+            cardElement.addEventListener('click', flipCard);
+            return cardElement;
+        }
+
+        function initializeGame() {
+            gameBoard.innerHTML = ''; // Panoyu temizle
+            shuffle(cardsData);
+            cardsData.forEach(data => {
+                gameBoard.appendChild(createCard(data));
+            });
+
+            flippedCards = [];
+            matchedPairs = 0;
+            attempts = 0;
+            lockBoard = false;
+            matchesFoundSpan.textContent = matchedPairs;
+            attemptsSpan.textContent = attempts;
+            gameMessage.textContent = '';
+        }
+
+        function flipCard() {
+            if (lockBoard) return; // İki kart açıkken başka kart açmayı engelle
+            if (this === flippedCards[0]) return; // Aynı karta tekrar tıklanmasını engelle
+
+            this.classList.add('flipped');
+            flippedCards.push(this);
+
+            if (flippedCards.length === 2) {
+                attempts++;
+                attemptsSpan.textContent = attempts;
+                lockBoard = true; // İki kart açıldı, panoyu kilitle
+                checkForMatch();
+            }
+        }
+
+        function checkForMatch() {
+            const [card1, card2] = flippedCards;
+            const isMatch = card1.dataset.id === card2.dataset.id;
+
+            isMatch ? disableCards() : unflipCards();
+        }
+
+        function disableCards() {
+            flippedCards[0].removeEventListener('click', flipCard);
+            flippedCards[1].removeEventListener('click', flipCard);
+            
+            // Kartlara 'matched' sınıfını ekleyerek soluklaştır
+            flippedCards[0].classList.add('matched');
+            flippedCards[1].classList.add('matched');
+
+            matchedPairs++;
+            matchesFoundSpan.textContent = matchedPairs;
+            resetFlippedCards();
+
+            if (matchedPairs === cardsData.length / 2) {
+                gameMessage.textContent = `Tebrikler! ${attempts} denemede tüm eşleşmeleri buldunuz!`;
+            }
+        }
+
+        function unflipCards() {
+            setTimeout(() => {
+                flippedCards[0].classList.remove('flipped');
+                flippedCards[1].classList.remove('flipped');
+                resetFlippedCards();
+            }, 1000); // 1 saniye sonra kartları kapat
+        }
+
+        function resetFlippedCards() {
+            [flippedCards, lockBoard] = [[], false]; // Açık kartları sıfırla, panoyu aç
+        }
+
+        resetButton.addEventListener('click', initializeGame);
+
+        // Oyun başlangıcı
+        initializeGame();
+    </script>
+</body>
+</html>
